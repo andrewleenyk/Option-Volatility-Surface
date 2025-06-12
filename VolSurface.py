@@ -1,115 +1,74 @@
-import requests
 import numpy as np
 import os
-os.system("TD_API_KEYS.py")
-#from TD_API_KEYS.py import payload
-payload = {'apikey':'-------------',
-        'symbol':'TSLA',
-        'contractType':'ALL'}
-endpoint = r"https://api.tdameritrade.com/v1/marketdata/chains"
-content = requests.get(url = endpoint, params = payload)
-
-data = content.json()
-
-class calls:
-    def daystoexpiry(alloptionsdata):
-        maturities = []
-
-        for expiry in alloptionsdata['callExpDateMap']:
-            for strike in alloptionsdata['callExpDateMap'][expiry]:
-                    maturities.append(int(expiry[11:]))
-        return maturities
-    
-    def moneyness(alloptionsdata):
-        arr = []
-
-        priceUnderlying = int(alloptionsdata['underlyingPrice'])
-        for expiry in alloptionsdata['callExpDateMap']:
-            for strike in alloptionsdata['callExpDateMap'][expiry]:
-                arr.append(strike)
-        return arr
-
-    def impliedvolatility(alloptionsdata):
-        arr = []
-
-        for expiry in alloptionsdata['callExpDateMap']:
-            for strike in alloptionsdata['callExpDateMap'][expiry]:
-                #arr.append((priceUnderlying-float(strike))/priceUnderlying)
-                arr.append(alloptionsdata['callExpDateMap'][expiry][strike][0]['volatility'])
-        return arr
-    
-    def delta(alloptionsdata):
-        arr = []
-
-        for expiry in alloptionsdata['callExpDateMap']:
-            for strike in alloptionsdata['callExpDateMap'][expiry]:
-                #arr.append((priceUnderlying-float(strike))/priceUnderlying)
-                arr.append(alloptionsdata['callExpDateMap'][expiry][strike][0]['delta'])
-        
-        return arr
-
-class puts:
-    def daystoexpiry(alloptionsdata):
-        maturities = []
-
-        for expiry in alloptionsdata['putExpDateMap']:
-            for strike in alloptionsdata['putExpDateMap'][expiry]:
-                    maturities.append(int(expiry[11:]))
-        return maturities
-    
-    def moneyness(alloptionsdata):
-        arr = []
-
-        priceUnderlying = int(alloptionsdata['underlyingPrice'])
-        for expiry in alloptionsdata['putExpDateMap']:
-            for strike in alloptionsdata['putExpDateMap'][expiry]:
-                arr.append(strike)
-        return arr
-
-    def impliedvolatility(alloptionsdata):
-        arr = []
-
-        for expiry in alloptionsdata['putExpDateMap']:
-            for strike in alloptionsdata['putExpDateMap'][expiry]:
-                #arr.append((priceUnderlying-float(strike))/priceUnderlying)
-                arr.append(alloptionsdata['putExpDateMap'][expiry][strike][0]['volatility'])
-        return arr
-    
-    def delta(alloptionsdata):
-        arr = []
-
-        for expiry in alloptionsdata['putExpDateMap']:
-            for strike in alloptionsdata['putExpDateMap'][expiry]:
-                #arr.append((priceUnderlying-float(strike))/priceUnderlying)
-                arr.append(alloptionsdata['putExpDateMap'][expiry][strike][0]['delta'])
-        
-        return arr
-        
-
-
-deltaa = calls.delta(data)
-days = calls.daystoexpiry(data)
-money = calls.moneyness(data)
-index=0
-
-
-import scipy.ndimage
-depthSmooth = scipy.ndimage.filters.gaussian_filter([deltaa], [900,900])
-newmmmod = np.asmatrix([days,money,depthSmooth[0]])
-
 import plotly.graph_objects as go
+import scipy.ndimage
 
-fig = go.Figure(data=[go.Surface(z=newmmmod,colorscale='blackbody')])
+USE_MOCK_DATA = True
 
-fig.update_layout(title='Volatility Surface', autosize=False,
-                width=500, height=500,
-                margin=dict(l=65, r=50, b=65, t=90))
-fig.update_layout(scene = dict(
-                    xaxis_title='Days to expiry',
-                    yaxis_title='Moneyness',
-                    zaxis_title='Implied Volatility'),
-                    width=700,
-                    margin=dict(r=20, b=10, l=10, t=10))
+if USE_MOCK_DATA:
+    from mock_option_data import mock_data
+    data = mock_data
+else:
+    import requests
+    os.system("TD_API_KEYS.py")
+    payload = {'apikey':'-------------',
+            'symbol':'TSLA',
+            'contractType':'ALL'}
+    endpoint = r"https://api.tdameritrade.com/v1/marketdata/chains"
+    content = requests.get(url = endpoint, params = payload)
+    data = content.json()
 
+call_map = data['callExpDateMap']
+expiries = list(call_map.keys())
+strikes = sorted({float(strike) for expiry in call_map.values() for strike in expiry.keys()})
+
+X = []
+Y = []
+Z = []
+
+for strike in strikes:
+    row_days = []
+    row_vols = []
+    for expiry in expiries:
+        days = int(expiry.split(":")[1])
+        row_days.append(days)
+        vol = None
+        if str(strike) in call_map[expiry]:
+            vol = call_map[expiry][str(strike)][0]['volatility']
+        else:
+            vol = float('nan')
+        row_vols.append(vol)
+    X.append(row_days)
+    Y.append([strike]*len(expiries))
+    Z.append(row_vols)
+
+X = np.array(X)
+Y = np.array(Y)
+Z = np.array(Z)
+
+fig = go.Figure(data=[go.Surface(
+    x=X,
+    y=Y,
+    z=Z,
+    colorscale='Viridis',
+    showscale=True,
+    opacity=0.9
+)])
+
+fig.update_layout(
+    title='Volatility Surface (Calls)',
+    autosize=False,
+    width=800,
+    height=800,
+    margin=dict(l=65, r=50, b=65, t=90),
+    scene=dict(
+        xaxis_title='Days to expiry',
+        yaxis_title='Strike',
+        zaxis_title='Implied Volatility',
+        camera=dict(
+            eye=dict(x=1.5, y=1.5, z=1.5)
+        )
+    )
+)
 
 fig.show()
